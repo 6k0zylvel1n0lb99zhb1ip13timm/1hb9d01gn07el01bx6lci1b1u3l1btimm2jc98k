@@ -1,4 +1,6 @@
 local httpService = game:GetService('HttpService')
+local RunService  = game:GetService('RunService')
+local Lighting    = game:GetService('Lighting')
 local ThemeManager = {} do
 	ThemeManager.Folder = 'LinoriaLibSettings'
 	-- if not isfolder(ThemeManager.Folder) then makefolder(ThemeManager.Folder) end
@@ -239,15 +241,201 @@ local ThemeManager = {} do
 		return tab:AddLeftGroupbox('Themes')
 	end
 
+	-- ApplyToTab now creates a Tabbox with 'Themes' and 'Background' sub-tabs.
 	function ThemeManager:ApplyToTab(tab)
 		assert(self.Library, 'Must set ThemeManager.Library first!')
-		local groupbox = self:CreateGroupBox(tab)
-		self:CreateThemeManager(groupbox)
+		local tabbox  = tab:AddLeftTabbox()
+		local tThemes = tabbox:AddTab('Themes')
+		local tBg     = tabbox:AddTab('Background')
+		self:CreateThemeManager(tThemes)
+		self:CreateBackgroundTab(tBg)
 	end
 
 	function ThemeManager:ApplyToGroupbox(groupbox)
 		assert(self.Library, 'Must set ThemeManager.Library first!')
 		self:CreateThemeManager(groupbox)
+	end
+
+	function ThemeManager:CreateBackgroundTab(tab)
+		local lib = self.Library
+
+		local colorCorrect = Lighting:FindFirstChildWhichIsA('ColorCorrectionEffect')
+		if not colorCorrect then
+			colorCorrect = Instance.new('ColorCorrectionEffect')
+			colorCorrect.Name   = '__LinoriaColorCorrect'
+			colorCorrect.Parent = Lighting
+		end
+
+		if not self.BgOverlay then
+			local overlay = Instance.new('Frame')
+			overlay.Name                   = '__LinoriaBgOverlay'
+			overlay.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
+			overlay.BackgroundTransparency = 1
+			overlay.BorderSizePixel        = 0
+			overlay.Size                   = UDim2.new(1, 0, 1, 0)
+			overlay.ZIndex                 = 0   -- behind all UI elements
+			overlay.Parent                 = lib.ScreenGui
+			self.BgOverlay = overlay
+		end
+
+		local function getOrCreatePart()
+			if self.BgPart and self.BgPart.Parent then return self.BgPart end
+
+			local part        = Instance.new('Part')
+			part.Name         = '__LinoriaBgItem'
+			part.Anchored     = true
+			part.CanCollide   = false
+			part.CastShadow   = false
+			part.Locked       = true
+			part.Size         = Vector3.new(3, 3, 3)
+			part.Material     = Enum.Material.Neon
+			part.CFrame       = workspace.CurrentCamera.CFrame * CFrame.new(0, 0, -10)
+
+			local mesh        = Instance.new('SpecialMesh')
+			mesh.MeshType     = Enum.MeshType.Sphere
+			mesh.Parent       = part
+
+			part.Parent       = workspace
+			self.BgPart       = part
+			return part
+		end
+
+		local function setRotationSpeed(speed)
+			if self.BgRotateConn then
+				self.BgRotateConn:Disconnect()
+				self.BgRotateConn = nil
+			end
+			if speed > 0 then
+				self.BgRotateConn = RunService.RenderStepped:Connect(function(dt)
+					if self.BgPart and self.BgPart.Parent then
+						self.BgPart.CFrame = self.BgPart.CFrame
+							* CFrame.Angles(0, speed * dt * math.pi * 2, 0)
+					end
+				end)
+			end
+		end
+
+		local meshTypeMap = {
+			Sphere   = Enum.MeshType.Sphere,
+			Block    = Enum.MeshType.Brick,
+			Cylinder = Enum.MeshType.Cylinder,
+			Wedge    = Enum.MeshType.Wedge,
+			Head     = Enum.MeshType.Head,
+			Cross    = Enum.MeshType.Brick,   
+		}
+		local materialNames = {
+			'SmoothPlastic', 'Neon', 'Glass', 'Metal', 'Wood',
+			'Granite', 'Marble', 'ForceField', 'Foil', 'Ice',
+		}
+
+		tab:AddLabel('item color'):AddColorPicker('BgItemColor', {
+			Default  = Color3.fromRGB(255, 255, 255),
+			Callback = function(val)
+				getOrCreatePart().Color = val
+			end,
+		})
+
+		tab:AddDropdown('BgItemType', {
+			Text     = 'item',
+			Values   = { 'Sphere', 'Block', 'Cylinder', 'Wedge', 'Head', 'Cross' },
+			Default  = 1,
+			Callback = function(val)
+				local p = getOrCreatePart()
+				local m = p:FindFirstChildOfClass('SpecialMesh')
+				if m then
+					m.MeshType = meshTypeMap[val] or Enum.MeshType.Sphere
+					m.Scale = (val == 'Cross')
+						and Vector3.new(0.2, 1.5, 1.5)
+						or  Vector3.new(1, 1, 1)
+				end
+			end,
+		})
+
+		tab:AddSlider('BgItemTransparency', {
+			Text     = 'transparency', Min = 0, Max = 1,
+			Default  = 0, Rounding = 2,
+			Callback = function(val)
+				if self.BgPart then self.BgPart.Transparency = val end
+			end,
+		})
+
+		tab:AddSlider('BgItemReflectance', {
+			Text     = 'reflectance', Min = 0, Max = 1,
+			Default  = 0, Rounding = 2,
+			Callback = function(val)
+				if self.BgPart then self.BgPart.Reflectance = val end
+			end,
+		})
+
+		tab:AddSlider('BgItemSpeed', {
+			Text     = 'speed', Min = 0, Max = 1,
+			Default  = 0.15, Rounding = 2,
+			Callback = function(val) setRotationSpeed(val) end,
+		})
+
+		tab:AddDropdown('BgItemMaterial', {
+			Text     = 'material',
+			Values   = materialNames,
+			Default  = 2,   -- Neon
+			Callback = function(val)
+				if self.BgPart then
+					pcall(function() self.BgPart.Material = Enum.Material[val] end)
+				end
+			end,
+		})
+
+		tab:AddDivider()
+
+		tab:AddLabel('background color'):AddColorPicker('BgOverlayColor', {
+			Default  = Color3.fromRGB(0, 0, 0),
+			Callback = function(val)
+				if self.BgOverlay then self.BgOverlay.BackgroundColor3 = val end
+			end,
+		})
+
+		tab:AddSlider('BgOverlayTransparency', {
+			Text     = 'transparency', Min = 0, Max = 1,
+			Default  = 1, Rounding = 2,
+			Callback = function(val)
+				if self.BgOverlay then self.BgOverlay.BackgroundTransparency = val end
+			end,
+		})
+
+		tab:AddSlider('BgBlurSize', {
+			Text     = 'blur', Min = 0, Max = 50,
+			Default  = 0, Rounding = 0,
+			Callback = function(val)
+				if not self.BgBlurEffect then
+					local fx          = Instance.new('BlurEffect')
+					fx.Name           = '__LinoriaBgBlur'
+					fx.Parent         = Lighting
+					self.BgBlurEffect = fx
+				end
+				self.BgBlurEffect.Size    = val
+				self.BgBlurEffect.Enabled = (val > 0)
+			end,
+		})
+
+		tab:AddSlider('BgContrast', {
+			Text     = 'contrast', Min = 0, Max = 10,
+			Default  = 0, Rounding = 1,
+			Callback = function(val) colorCorrect.Contrast    = val / 10 end,
+		})
+
+		tab:AddSlider('BgSaturation', {
+			Text     = 'saturation', Min = 0, Max = 10,
+			Default  = 0, Rounding = 1,
+			Callback = function(val) colorCorrect.Saturation  = val / 10 end,
+		})
+
+		tab:AddSlider('BgBrightness', {
+			Text     = 'brightness', Min = 0, Max = 1,
+			Default  = 0, Rounding = 2,
+			Callback = function(val) colorCorrect.Brightness  = val end,
+		})
+
+		getOrCreatePart()
+		setRotationSpeed(0.15)
 	end
 
 	ThemeManager:BuildFolderTree()
